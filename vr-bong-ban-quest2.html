@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bóng Bàn VR — Quest 2</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #050510; font-family: 'Segoe UI', system-ui, sans-serif; }
+  #scene-container { position: fixed; inset: 0; }
+  canvas { display: block; }
+
+  /* ---------- Menu ---------- */
+  #menu {
+    position: fixed; inset: 0; z-index: 10;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: radial-gradient(ellipse at 50% 30%, rgba(40,20,90,.85), rgba(5,5,16,.92) 70%);
+    backdrop-filter: blur(6px); color: #fff; text-align: center; padding: 20px;
+    transition: opacity .4s;
+  }
+  #menu.hidden { opacity: 0; pointer-events: none; }
+  .logo { font-size: clamp(42px, 8vw, 84px); font-weight: 900; letter-spacing: 4px; line-height: 1;
+    background: linear-gradient(90deg, #00f0ff, #a855f7, #ff2d78);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    text-shadow: 0 0 40px rgba(0,240,255,.35); }
+  .tagline { margin: 14px 0 30px; font-size: clamp(15px, 2.5vw, 20px); color: #c7d2fe; letter-spacing: 1px; }
+  .btn {
+    display: block; width: min(340px, 88vw); margin: 10px auto; padding: 16px 20px;
+    font-size: 19px; font-weight: 700; color: #fff; cursor: pointer; border: none; border-radius: 16px;
+    background: linear-gradient(135deg, #00c2ff, #7c3aed); box-shadow: 0 8px 30px rgba(0,194,255,.35);
+    transition: transform .15s, box-shadow .15s;
+  }
+  .btn:hover { transform: translateY(-2px); box-shadow: 0 12px 36px rgba(0,194,255,.5); }
+  .btn.secondary { background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.25); box-shadow: none; }
+  .diff-row { display: flex; gap: 10px; justify-content: center; margin: 8px 0 18px; flex-wrap: wrap; }
+  .diff-btn {
+    padding: 10px 22px; border-radius: 999px; border: 1px solid rgba(255,255,255,.3); cursor: pointer;
+    background: rgba(255,255,255,.07); color: #e0e7ff; font-size: 16px; font-weight: 600;
+  }
+  .diff-btn.active { background: linear-gradient(135deg, #ff2d78, #ff8a00); border-color: transparent; color: #fff; }
+  .howto { margin-top: 26px; font-size: 14.5px; line-height: 1.9; color: #94a3b8; max-width: 520px; }
+  .howto b { color: #e2e8f0; }
+
+  /* ---------- HUD ---------- */
+  #hud {
+    position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 5;
+    display: none; align-items: center; gap: 18px; padding: 10px 26px; border-radius: 999px;
+    background: rgba(10,10,30,.55); border: 1px solid rgba(255,255,255,.18);
+    backdrop-filter: blur(8px); color: #fff; font-weight: 800; font-size: 22px; letter-spacing: 1px;
+  }
+  #hud.show { display: flex; }
+  #hud .you { color: #00f0ff; } #hud .ai { color: #ff2d78; }
+  #status {
+    position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%); z-index: 5;
+    display: none; padding: 12px 28px; border-radius: 999px; font-size: 18px; font-weight: 700; color: #fff;
+    background: rgba(10,10,30,.6); border: 1px solid rgba(255,255,255,.18); backdrop-filter: blur(8px);
+  }
+  #status.show { display: block; }
+  #vr-hint {
+    position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%); z-index: 5;
+    display: none; padding: 10px 22px; border-radius: 999px; font-size: 15px; color: #cbd5e1;
+    background: rgba(10,10,30,.55);
+  }
+  #vr-hint.show { display: block; }
+</style>
+</head>
+<body>
+<div id="scene-container"></div>
+
+<div id="menu">
+  <div class="logo">BÓNG BÀN VR</div>
+  <div class="tagline">🏓 Đấu với máy ngay trên kính Meta Quest 2 — ai tới 11 điểm trước thì thắng</div>
+  <div class="diff-row" id="diffRow">
+    <button class="diff-btn" data-diff="easy">Dễ</button>
+    <button class="diff-btn active" data-diff="medium">Trung bình</button>
+    <button class="diff-btn" data-diff="hard">Khó</button>
+  </div>
+  <button class="btn" id="btnVR">🥽 Vào VR (Quest 2)</button>
+  <button class="btn secondary" id="btnDesktop">🖱️ Chơi bằng chuột (test trên máy tính)</button>
+  <div class="howto" id="loadMsg" style="color:#7dd3fc;">⏳ Đang tải thư viện 3D, chờ vài giây…</div>
+  <div class="howto">
+    <b>Trên Quest 2:</b> mở trang này bằng trình duyệt Oculus Browser → bấm “Vào VR” → cầm tay cầm, bóp cò để giao bóng.<br>
+    <b>Trên máy tính:</b> di chuột để di chuyển vợt, bấm chuột để giao bóng.<br>
+    Vợt đỏ là của bạn. Đánh bóng nảy qua lưới, đừng để bóng bay qua sau lưng mình!
+  </div>
+</div>
+
+<div id="hud"><span class="you">BẠN <span id="scoreYou">0</span></span><span>—</span><span class="ai"><span id="scoreAI">0</span> MÁY</span></div>
+<div id="status"></div>
+<div id="vr-hint">Bóp cò tay cầm để giao bóng • Đưa vợt đón bóng bay tới</div>
+
+<script>
+  // Báo rõ nếu thư viện 3D không tải được (vd: mở trong khung xem trước của app chat, hoặc mất mạng)
+  window.__gameLoaded = false;
+  setTimeout(function () {
+    if (!window.__gameLoaded) {
+      var m = document.getElementById('loadMsg');
+      if (m) {
+        m.textContent = '⚠️ Game chưa tải được thư viện 3D nên nút bấm chưa hoạt động. Đừng mở trong khung xem trước của app chat — hãy tải file về máy rồi mở bằng trình duyệt Chrome/Edge có kết nối mạng, sau đó bấm “Chơi bằng chuột”.';
+        m.style.color = '#ffb020';
+      }
+    }
+  }, 6000);
+</script>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+window.__gameLoaded = true;
+document.getElementById('loadMsg').style.display = 'none';
+
+/* ================= Cấu hình bàn & vật lý ================= */
+const TABLE_Y = 0.76;          // chiều cao mặt bàn (m)
+const HALF_L = 1.37;           // nửa chiều dài bàn (trục Z)
+const HALF_W = 0.7625;         // nửa chiều rộng bàn (trục X)
+const NET_H = 0.1525;          // chiều cao lưới
+const BALL_R = 0.02;
+const GRAV = 9.81;
+const PLAYER_Z = 1.55, AI_Z = -1.55;
+const WIN_SCORE = 11;
+
+const DIFF = {
+  easy:   { aiSpeed: 1.7, aiErr: 0.14, label: 'Dễ' },
+  medium: { aiSpeed: 2.5, aiErr: 0.07, label: 'Trung bình' },
+  hard:   { aiSpeed: 3.6, aiErr: 0.02, label: 'Khó' }
+};
+let diff = DIFF.medium;
+
+/* ================= Scene ================= */
+const container = document.getElementById('scene-container');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x050510);
+scene.fog = new THREE.FogExp2(0x050510, 0.045);
+
+const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.05, 100);
+camera.position.set(0, 1.5, 2.7);
+camera.lookAt(0, 0.9, 0);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.xr.enabled = true;
+renderer.xr.setReferenceSpaceType('local-floor');
+container.appendChild(renderer.domElement);
+
+scene.add(new THREE.AmbientLight(0x8899ff, 0.7));
+const dir = new THREE.DirectionalLight(0xffffff, 1.2); dir.position.set(3, 6, 4); scene.add(dir);
+const neonCyan = new THREE.PointLight(0x00f0ff, 30, 12); neonCyan.position.set(-3, 3, 0); scene.add(neonCyan);
+const neonPink = new THREE.PointLight(0xff2d78, 30, 12); neonPink.position.set(3, 3, 0); scene.add(neonPink);
+
+/* Sàn + lưới neon */
+const floor = new THREE.Mesh(
+  new THREE.PlaneGeometry(40, 40),
+  new THREE.MeshStandardMaterial({ color: 0x0a0a1e, roughness: 0.9, metalness: 0.1 })
+);
+floor.rotation.x = -Math.PI / 2; scene.add(floor);
+const grid = new THREE.GridHelper(40, 40, 0x00f0ff, 0x3b2d8f);
+grid.position.y = 0.002; grid.material.transparent = true; grid.material.opacity = 0.5; scene.add(grid);
+
+/* Hạt sáng bay lơ lửng */
+{
+  const n = 260, pos = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    pos[i * 3] = (Math.random() - 0.5) * 16;
+    pos[i * 3 + 1] = Math.random() * 4 + 0.3;
+    pos[i * 3 + 2] = (Math.random() - 0.5) * 16;
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  scene.add(new THREE.Points(g, new THREE.PointsMaterial({ color: 0x66ccff, size: 0.03, transparent: true, opacity: 0.7 })));
+}
+
+/* ================= Bàn bóng ================= */
+const tableGroup = new THREE.Group(); scene.add(tableGroup);
+{
+  const top = new THREE.Mesh(
+    new THREE.BoxGeometry(HALF_W * 2, 0.05, HALF_L * 2),
+    new THREE.MeshStandardMaterial({ color: 0x123a8f, roughness: 0.55 })
+  );
+  top.position.y = TABLE_Y; tableGroup.add(top);
+  const edge = new THREE.LineSegments(
+    new THREE.EdgesGeometry(top.geometry),
+    new THREE.LineBasicMaterial({ color: 0xffffff })
+  );
+  edge.position.y = TABLE_Y; tableGroup.add(edge);
+  const lineMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  const centerLine = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.002, HALF_L * 2), lineMat);
+  centerLine.position.y = TABLE_Y + 0.026; tableGroup.add(centerLine);
+  const endLineGeo = new THREE.BoxGeometry(HALF_W * 2, 0.002, 0.012);
+  for (const z of [-HALF_L, HALF_L]) {
+    const l = new THREE.Mesh(endLineGeo, lineMat); l.position.set(0, TABLE_Y + 0.026, z); tableGroup.add(l);
+  }
+  const legMat = new THREE.MeshStandardMaterial({ color: 0x111122, roughness: 0.8 });
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.08, TABLE_Y, 0.08), legMat);
+    leg.position.set(sx * (HALF_W - 0.15), TABLE_Y / 2, sz * (HALF_L - 0.2)); tableGroup.add(leg);
+  }
+  // Lưới
+  const netCanvas = document.createElement('canvas'); netCanvas.width = 128; netCanvas.height = 32;
+  const nc = netCanvas.getContext('2d');
+  nc.strokeStyle = 'rgba(255,255,255,0.9)'; nc.lineWidth = 1;
+  for (let x = 0; x <= 128; x += 8) { nc.beginPath(); nc.moveTo(x, 0); nc.lineTo(x, 32); nc.stroke(); }
+  for (let y = 0; y <= 32; y += 8) { nc.beginPath(); nc.moveTo(0, y); nc.lineTo(128, y); nc.stroke(); }
+  const netTex = new THREE.CanvasTexture(netCanvas);
+  netTex.wrapS = netTex.wrapT = THREE.RepeatWrapping; netTex.repeat.set(6, 1);
+  const net = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.83, NET_H),
+    new THREE.MeshBasicMaterial({ map: netTex, transparent: true, opacity: 0.55, side: THREE.DoubleSide })
+  );
+  net.position.set(0, TABLE_Y + NET_H / 2, 0); tableGroup.add(net);
+  const postMat = new THREE.MeshStandardMaterial({ color: 0x222233 });
+  for (const sx of [-1, 1]) {
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, NET_H + 0.05, 10), postMat);
+    post.position.set(sx * 0.915, TABLE_Y + (NET_H + 0.05) / 2, 0); tableGroup.add(post);
+  }
+}
+
+/* ================= Vợt ================= */
+function makePaddle(faceColor) {
+  const g = new THREE.Group();
+  const face = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.085, 0.085, 0.012, 32),
+    new THREE.MeshStandardMaterial({ color: 0x8a5a2b, roughness: 0.6 })
+  );
+  face.rotation.x = Math.PI / 2; g.add(face);
+  const rubberF = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.083, 0.083, 0.004, 32),
+    new THREE.MeshStandardMaterial({ color: faceColor, roughness: 0.9 })
+  );
+  rubberF.rotation.x = Math.PI / 2; rubberF.position.z = -0.008; g.add(rubberF);
+  const rubberB = rubberF.clone();
+  rubberB.material = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.9 });
+  rubberB.position.z = 0.008; g.add(rubberB);
+  const handle = new THREE.Mesh(
+    new THREE.BoxGeometry(0.03, 0.11, 0.02),
+    new THREE.MeshStandardMaterial({ color: 0x5b3a1a, roughness: 0.7 })
+  );
+  handle.position.y = -0.135; g.add(handle);
+  return g;
+}
+const playerPaddle = makePaddle(0xff2222); scene.add(playerPaddle);
+playerPaddle.position.set(0, 1.1, PLAYER_Z);
+const aiPaddle = makePaddle(0x2222ff); scene.add(aiPaddle);
+aiPaddle.rotation.y = Math.PI; aiPaddle.position.set(0, 1.05, AI_Z);
+
+/* ================= Bóng + vệt sáng ================= */
+const ball = new THREE.Mesh(
+  new THREE.SphereGeometry(BALL_R, 24, 18),
+  new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffaa00, emissiveIntensity: 0.55 })
+);
+scene.add(ball);
+const TRAIL_N = 16;
+const trailPos = new Float32Array(TRAIL_N * 3);
+const trailGeo = new THREE.BufferGeometry();
+trailGeo.setAttribute('position', new THREE.BufferAttribute(trailPos, 3));
+const trail = new THREE.Line(trailGeo, new THREE.LineBasicMaterial({ color: 0x00f0ff, transparent: true, opacity: 0.8 }));
+scene.add(trail);
+const trailPts = [];
+function updateTrail() {
+  trailPts.unshift(ball.position.clone());
+  if (trailPts.length > TRAIL_N) trailPts.pop();
+  for (let i = 0; i < TRAIL_N; i++) {
+    const p = trailPts[Math.min(i, trailPts.length - 1)] || ball.position;
+    trailPos[i * 3] = p.x; trailPos[i * 3 + 1] = p.y; trailPos[i * 3 + 2] = p.z;
+  }
+  trailGeo.attributes.position.needsUpdate = true;
+}
+
+/* ================= Bảng điểm 3D ================= */
+const scoreCanvas = document.createElement('canvas'); scoreCanvas.width = 512; scoreCanvas.height = 256;
+const sctx = scoreCanvas.getContext('2d');
+const scoreTex = new THREE.CanvasTexture(scoreCanvas);
+const scoreboard = new THREE.Mesh(
+  new THREE.PlaneGeometry(1.5, 0.75),
+  new THREE.MeshBasicMaterial({ map: scoreTex, transparent: true, side: THREE.DoubleSide })
+);
+scoreboard.position.set(0, 2.15, 0); scene.add(scoreboard);
+
+/* ================= Trạng thái game ================= */
+let state = 'menu';            // menu | servePlayer | serveAI | rally | point | gameover
+let scoreYou = 0, scoreAI = 0;
+let lastHit = null;            // 'player' | 'ai'
+let serveTimer = 0, pointTimer = 0, serveBy = 'player';
+const vel = new THREE.Vector3();
+const prevPaddlePos = new THREE.Vector3();
+const paddleVel = new THREE.Vector3();
+const tmpV = new THREE.Vector3();
+let desktopMode = false, vrMode = false;
+let pointerTarget = new THREE.Vector2(0, 1.1);
+let audioCtx = null;
+
+const hud = document.getElementById('hud');
+const statusEl = document.getElementById('status');
+const vrHint = document.getElementById('vr-hint');
+const scoreYouEl = document.getElementById('scoreYou');
+const scoreAIEl = document.getElementById('scoreAI');
+
+function beep(freq, dur = 0.08, type = 'sine', vol = 0.12) {
+  if (!audioCtx) return;
+  const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+  o.type = type; o.frequency.value = freq;
+  g.gain.setValueAtTime(vol, audioCtx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+  o.connect(g); g.connect(audioCtx.destination);
+  o.start(); o.stop(audioCtx.currentTime + dur);
+}
+function showStatus(text, ms = 1600) {
+  statusEl.textContent = text;
+  statusEl.classList.add('show');
+  clearTimeout(showStatus._t);
+  showStatus._t = setTimeout(() => statusEl.classList.remove('show'), ms);
+}
+function drawScoreboard(sub = '') {
+  sctx.clearRect(0, 0, 512, 256);
+  sctx.fillStyle = 'rgba(8,8,28,0.85)'; sctx.fillRect(0, 0, 512, 256);
+  sctx.strokeStyle = '#00f0ff'; sctx.lineWidth = 6; sctx.strokeRect(6, 6, 500, 244);
+  sctx.textAlign = 'center';
+  sctx.fillStyle = '#00f0ff'; sctx.font = 'bold 64px sans-serif';
+  sctx.fillText('BẠN ' + scoreYou, 128, 100);
+  sctx.fillStyle = '#ff2d78';
+  sctx.fillText(scoreAI + ' MÁY', 384, 100);
+  sctx.fillStyle = '#e2e8f0'; sctx.font = 'bold 30px sans-serif';
+  sctx.fillText(sub || ('Độ khó: ' + diff.label + ' • Tới 11 thắng'), 256, 180);
+  scoreTex.needsUpdate = true;
+}
+function refreshScore() {
+  scoreYouEl.textContent = scoreYou; scoreAIEl.textContent = scoreAI; drawScoreboard();
+}
+function startPoint(server) {
+  serveBy = server; state = server === 'player' ? 'servePlayer' : 'serveAI';
+  vel.set(0, 0, 0); serveTimer = 0;
+  drawScoreboard(server === 'player' ? 'Bạn giao bóng — bóp cò!' : 'Máy giao bóng...');
+}
+function doServe() {
+  if (state === 'servePlayer') {
+    vel.set((Math.random() - 0.5) * 0.8, 2.4, -4.4);
+    lastHit = 'player'; state = 'rally'; beep(700, 0.1, 'triangle', 0.15);
+  }
+}
+function aiServe() {
+  vel.set((Math.random() - 0.5) * 0.8, 2.1, 4.4);
+  lastHit = 'ai'; state = 'rally'; beep(600, 0.1, 'triangle', 0.12);
+}
+function winPoint(who) {
+  if (state === 'point' || state === 'gameover') return;
+  state = 'point'; pointTimer = 0; vel.set(0, 0, 0);
+  if (who === 'player') { scoreYou++; showStatus('🎉 Bạn ghi điểm!'); beep(880, 0.15); setTimeout(() => beep(1170, 0.2), 120); }
+  else { scoreAI++; showStatus('Máy ghi điểm!'); beep(330, 0.2, 'sawtooth', 0.08); }
+  refreshScore();
+  if (scoreYou >= WIN_SCORE || scoreAI >= WIN_SCORE) {
+    state = 'gameover';
+    const win = scoreYou >= WIN_SCORE;
+    drawScoreboard(win ? '🏆 BẠN THẮNG!' : 'Máy thắng — chơi lại nhé!');
+    showStatus(win ? '🏆 Bạn thắng trận này!' : 'Máy thắng trận này!', 4000);
+    if (win) [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => beep(f, 0.25), i * 150));
+    setTimeout(() => {
+      const menu = document.getElementById('menu');
+      menu.classList.remove('hidden');
+      document.querySelector('#menu .tagline').textContent =
+        (win ? '🏆 Bạn thắng ' : 'Máy thắng ') + scoreYou + ' — ' + scoreAI + '. Chơi lại nhé!';
+    }, 2500);
+  }
+}
+
+/* ================= Điều khiển VR ================= */
+const grips = [renderer.xr.getControllerGrip(0), renderer.xr.getControllerGrip(1)];
+const ctrls = [renderer.xr.getController(0), renderer.xr.getController(1)];
+let gripHand = [null, null];
+ctrls.forEach((c, i) => {
+  c.addEventListener('connected', (e) => { gripHand[i] = e.data.handedness; });
+  c.addEventListener('selectstart', () => { if (vrMode) doServe(); });
+  scene.add(c);
+});
+grips.forEach(g => scene.add(g));
+function activeGrip() {
+  for (let i = 0; i < 2; i++) if (gripHand[i] === 'right') return grips[i];
+  return grips[0];
+}
+function onSessionStart() {
+  vrMode = true; desktopMode = false;
+  const g = activeGrip();
+  g.add(playerPaddle);
+  playerPaddle.position.set(0, 0, 0);
+  playerPaddle.rotation.set(0, 0, 0);
+  document.getElementById('menu').classList.add('hidden');
+  vrHint.classList.add('show');
+  hud.classList.add('show');
+  startPoint('player');
+}
+function onSessionEnd() {
+  vrMode = false;
+  scene.add(playerPaddle);
+  playerPaddle.position.set(0, 1.1, PLAYER_Z);
+  vrHint.classList.remove('show');
+}
+
+/* ================= Điều khiển chuột (desktop) ================= */
+const raycaster = new THREE.Raycaster();
+const planeZ = new THREE.Plane(new THREE.Vector3(0, 0, 1), -PLAYER_Z);
+addEventListener('pointermove', (e) => {
+  if (!desktopMode || state === 'menu') return;
+  const nx = (e.clientX / innerWidth) * 2 - 1;
+  const ny = -(e.clientY / innerHeight) * 2 + 1;
+  raycaster.setFromCamera(new THREE.Vector2(nx, ny), camera);
+  const hit = new THREE.Vector3();
+  if (raycaster.ray.intersectPlane(planeZ, hit)) {
+    pointerTarget.set(THREE.MathUtils.clamp(hit.x, -1.1, 1.1), THREE.MathUtils.clamp(hit.y, 0.82, 1.65));
+  }
+});
+addEventListener('pointerdown', () => {
+  if (desktopMode) { if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); doServe(); }
+});
+
+/* ================= Nút menu ================= */
+document.querySelectorAll('.diff-btn').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('.diff-btn').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    diff = DIFF[b.dataset.diff];
+    drawScoreboard();
+  });
+});
+document.getElementById('btnVR').addEventListener('click', async () => {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (!navigator.xr) { alert('Trình duyệt này không hỗ trợ WebXR. Hãy mở bằng Oculus Browser trên kính Quest 2.'); return; }
+  const ok = await navigator.xr.isSessionSupported('immersive-vr');
+  if (!ok) { alert('Thiết bị này không hỗ trợ phiên VR.'); return; }
+  try {
+    const session = await navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor'] });
+    renderer.xr.setSession(session);
+    session.addEventListener('end', onSessionEnd);
+    onSessionStart();
+  } catch (err) { alert('Không mở được phiên VR: ' + err.message); }
+});
+document.getElementById('btnDesktop').addEventListener('click', () => {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  desktopMode = true;
+  document.getElementById('menu').classList.add('hidden');
+  hud.classList.add('show');
+  scoreYou = 0; scoreAI = 0; refreshScore();
+  startPoint('player');
+  showStatus('Di chuột để đỡ bóng — bấm chuột để giao bóng', 3000);
+});
+
+/* ================= Vật lý & AI ================= */
+function resetBallToPaddle() {
+  if (state === 'servePlayer') {
+    playerPaddle.getWorldPosition(tmpV);
+    ball.position.set(tmpV.x, tmpV.y + 0.05, tmpV.z - 0.16);
+  } else if (state === 'serveAI') {
+    ball.position.set(aiPaddle.position.x, aiPaddle.position.y + 0.05, aiPaddle.position.z + 0.16);
+  }
+}
+function stepPhysics(dt) {
+  const prevZ = ball.position.z, prevY = ball.position.y;
+  vel.y -= GRAV * dt;
+  ball.position.addScaledVector(vel, dt);
+
+  // Nảy mặt bàn
+  if (ball.position.y - BALL_R <= TABLE_Y && prevY - BALL_R >= TABLE_Y &&
+      Math.abs(ball.position.x) <= HALF_W && Math.abs(ball.position.z) <= HALF_L && vel.y < 0) {
+    ball.position.y = TABLE_Y + BALL_R;
+    vel.y = -vel.y * 0.86; vel.x *= 0.99; vel.z *= 0.99;
+    if (Math.abs(vel.y) > 0.6) beep(500, 0.05, 'sine', 0.08);
+  }
+  // Chạm lưới
+  if (prevZ * ball.position.z <= 0 && Math.abs(ball.position.x) < HALF_W + 0.1 &&
+      ball.position.y < TABLE_Y + NET_H + BALL_R && ball.position.y > TABLE_Y - 0.05) {
+    vel.z = -vel.z * 0.25; vel.x *= 0.7; vel.y *= 0.7; beep(220, 0.07, 'square', 0.06);
+  }
+  // Vợt người chơi
+  playerPaddle.getWorldPosition(tmpV);
+  const dP = ball.position.distanceTo(tmpV);
+  if (state === 'rally' && dP < 0.14 && vel.z > 0 && ball.position.z > 0.6) {
+    const dx = ball.position.x - tmpV.x, dy = ball.position.y - tmpV.y;
+    vel.x = paddleVel.x * 0.55 + dx * 3.2;
+    vel.y = paddleVel.y * 0.35 + 1.6 + dy * 1.5;
+    vel.z = -(Math.abs(vel.z) * 0.85 + Math.abs(paddleVel.z) * 0.45 + 1.4);
+    const sp = vel.length();
+    if (sp > 9) vel.multiplyScalar(9 / sp);
+    lastHit = 'player'; beep(820, 0.07, 'triangle', 0.15);
+  }
+  // Vợt máy
+  const dA = ball.position.distanceTo(aiPaddle.position);
+  if (state === 'rally' && dA < 0.15 && vel.z < 0 && ball.position.z < -0.9) {
+    const T = 0.55;
+    const tx = THREE.MathUtils.clamp((Math.random() - 0.5) * 1.2 + (Math.random() - 0.5) * diff.aiErr * 4, -0.7, 0.7);
+    const tz = 1.15, ty = 0.95;
+    vel.x = (tx - ball.position.x) / T;
+    vel.z = (tz - ball.position.z) / T;
+    vel.y = (ty - ball.position.y + 0.5 * GRAV * T * T) / T;
+    lastHit = 'ai'; beep(760, 0.07, 'triangle', 0.12);
+  }
+  // Ghi điểm
+  if (state === 'rally') {
+    if (ball.position.z > 2.35 || (ball.position.y < 0.05 && ball.position.z > HALF_L)) winPoint('ai');
+    else if (ball.position.z < -2.35 || (ball.position.y < 0.05 && ball.position.z < -HALF_L)) winPoint('player');
+    else if (ball.position.y < 0.03 && Math.abs(ball.position.x) > HALF_W + 0.6) {
+      winPoint(lastHit === 'player' ? 'ai' : 'player');
+    }
+  }
+}
+function stepAI(dt) {
+  let tx = 0, ty = 1.05;
+  if (state === 'rally' && vel.z < 0) {
+    const t = (AI_Z - ball.position.z) / vel.z;
+    if (t > 0 && t < 2) {
+      tx = THREE.MathUtils.clamp(ball.position.x + vel.x * t + (Math.random() - 0.5) * diff.aiErr, -0.95, 0.95);
+      ty = THREE.MathUtils.clamp(ball.position.y + vel.y * t - 0.5 * GRAV * t * t, 0.85, 1.35);
+    }
+  }
+  const dx = tx - aiPaddle.position.x, dy = ty - aiPaddle.position.y;
+  const dist = Math.hypot(dx, dy);
+  const maxStep = diff.aiSpeed * dt;
+  if (dist > 0.001) {
+    const s = Math.min(maxStep, dist);
+    aiPaddle.position.x += dx / dist * s;
+    aiPaddle.position.y += dy / dist * s;
+  }
+}
+
+/* ================= Vòng lặp ================= */
+const clock = new THREE.Clock();
+drawScoreboard();
+function animate() {
+  renderer.setAnimationLoop(() => {
+    const dt = Math.min(clock.getDelta(), 0.05);
+
+    // Vận tốc vợt người chơi
+    playerPaddle.getWorldPosition(tmpV);
+    if (prevPaddlePos.lengthSq() > 0) {
+      paddleVel.copy(tmpV).sub(prevPaddlePos).divideScalar(Math.max(dt, 0.001));
+      paddleVel.clampLength(0, 8);
+    }
+    prevPaddlePos.copy(tmpV);
+
+    // Vợt desktop đi theo chuột
+    if (desktopMode && !vrMode) {
+      playerPaddle.position.x += (pointerTarget.x - playerPaddle.position.x) * Math.min(1, dt * 18);
+      playerPaddle.position.y += (pointerTarget.y - playerPaddle.position.y) * Math.min(1, dt * 18);
+      playerPaddle.position.z = PLAYER_Z;
+    }
+
+    // Trạng thái
+    if (state === 'servePlayer' || state === 'serveAI') {
+      serveTimer += dt;
+      resetBallToPaddle();
+      if (state === 'serveAI' && serveTimer > 1.0) aiServe();
+    } else if (state === 'rally') {
+      stepPhysics(dt / 2); stepPhysics(dt / 2);
+      stepAI(dt);
+    } else if (state === 'point') {
+      pointTimer += dt;
+      ball.position.y = Math.max(ball.position.y - dt * 0.5, TABLE_Y + BALL_R);
+      if (pointTimer > 1.3) startPoint(serveBy === 'player' ? 'ai' : 'player');
+    }
+
+    updateTrail();
+    renderer.render(scene, camera);
+  });
+}
+animate();
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+</script>
+</body>
+</html>
