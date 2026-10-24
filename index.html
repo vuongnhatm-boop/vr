@@ -80,6 +80,7 @@
   <div class="howto" id="loadMsg" style="color:#7dd3fc;">⏳ Đang tải thư viện 3D, chờ vài giây…</div>
   <div class="howto">
     <b>Trên Quest 2:</b> mở trang này bằng trình duyệt Oculus Browser → bấm “Vào VR” → cầm tay cầm, bóp cò để giao bóng.<br>
+    <b>Di chuyển:</b> gạt cần analog <b>tay phải</b> — đẩy lên là tiến về phía bàn, kéo xuống là lùi lại, gạt ngang là sang trái/phải.<br>
     <b>Trên máy tính:</b> di chuột để di chuyển vợt, bấm chuột để giao bóng.<br>
     Vợt đỏ là của bạn. Đánh bóng nảy qua lưới, đừng để bóng bay qua sau lưng mình!
   </div>
@@ -87,7 +88,7 @@
 
 <div id="hud"><span class="you">BẠN <span id="scoreYou">0</span></span><span>—</span><span class="ai"><span id="scoreAI">0</span> MÁY</span></div>
 <div id="status"></div>
-<div id="vr-hint">Bóp cò tay cầm để giao bóng • Đưa vợt đón bóng bay tới</div>
+<div id="vr-hint">Cần phải: gạt cần để di chuyển • Bóp cò để giao bóng</div>
 
 <script>
   // Báo rõ nếu thư viện 3D không tải được (vd: mở trong khung xem trước của app chat, hoặc mất mạng)
@@ -137,6 +138,11 @@ scene.fog = new THREE.FogExp2(0x050510, 0.045);
 const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.05, 100);
 camera.position.set(0, 1.5, 2.7);
 camera.lookAt(0, 0.9, 0);
+
+// Rig di chuyển: camera + tay cầm đều nằm trong rig, dời rig là cả người chơi dời theo
+const rig = new THREE.Group();
+scene.add(rig);
+rig.add(camera);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(innerWidth, innerHeight);
@@ -371,9 +377,9 @@ let gripHand = [null, null];
 ctrls.forEach((c, i) => {
   c.addEventListener('connected', (e) => { gripHand[i] = e.data.handedness; });
   c.addEventListener('selectstart', () => { if (vrMode) doServe(); });
-  scene.add(c);
+  rig.add(c);
 });
-grips.forEach(g => scene.add(g));
+grips.forEach(g => rig.add(g));
 function activeGrip() {
   for (let i = 0; i < 2; i++) if (gripHand[i] === 'right') return grips[i];
   return grips[0];
@@ -391,9 +397,37 @@ function onSessionStart() {
 }
 function onSessionEnd() {
   vrMode = false;
+  rig.position.set(0, 0, 0);
   scene.add(playerPaddle);
   playerPaddle.position.set(0, 1.1, PLAYER_Z);
   vrHint.classList.remove('show');
+}
+
+/* Di chuyển bằng cần analog tay phải (gạt cần = đi theo hướng nhìn) */
+const _q = new THREE.Quaternion();
+const _fwd = new THREE.Vector3(), _rgt = new THREE.Vector3(), _move = new THREE.Vector3();
+function stepMove(dt) {
+  if (!vrMode) return;
+  const session = renderer.xr.getSession();
+  if (!session) return;
+  let mx = 0, my = 0;
+  for (const src of session.inputSources) {
+    if (src.handedness === 'right' && src.gamepad && src.gamepad.axes.length >= 2) {
+      mx = src.gamepad.axes[0] || 0;
+      my = src.gamepad.axes[1] || 0;
+      break;
+    }
+  }
+  if (Math.hypot(mx, my) < 0.15) return; // vùng chết chống trôi cần
+  camera.getWorldQuaternion(_q);
+  _fwd.set(0, 0, -1).applyQuaternion(_q); _fwd.y = 0; _fwd.normalize();
+  _rgt.set(1, 0, 0).applyQuaternion(_q); _rgt.y = 0; _rgt.normalize();
+  _move.copy(_fwd).multiplyScalar(-my).addScaledVector(_rgt, mx);
+  if (_move.length() > 1) _move.normalize();
+  rig.position.addScaledVector(_move, 2.2 * dt);
+  // Giới hạn quanh phía sân của bạn, không đi xuyên bàn
+  rig.position.x = THREE.MathUtils.clamp(rig.position.x, -2.2, 2.2);
+  rig.position.z = THREE.MathUtils.clamp(rig.position.z, -1.0, 0.9);
 }
 
 /* ================= Điều khiển chuột (desktop) ================= */
@@ -542,6 +576,9 @@ function animate() {
       playerPaddle.position.y += (pointerTarget.y - playerPaddle.position.y) * Math.min(1, dt * 18);
       playerPaddle.position.z = PLAYER_Z;
     }
+
+    // Di chuyển bằng cần tay phải (VR)
+    stepMove(dt);
 
     // Trạng thái
     if (state === 'servePlayer' || state === 'serveAI') {
